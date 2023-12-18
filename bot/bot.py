@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import json
 import os
+from typing import Optional
 
 import disnake
 from disnake.channel import TextChannel, VoiceChannel
@@ -25,6 +26,17 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+def find_game_by_member_id(member_id: str) -> OneWithDeathGame:
+    games_with_member = [
+        game for game in RUNNING_GAMES if any([member.id for member in game if member.id == member_id])
+    ]
+    if games_with_member:
+        if len(games_with_member) > 1:
+            print(f"WARNING: member {member_id} is in multiple games, which is not supported and could cause problems")
+
+        return games_with_member[0]
 
 
 @bot.command()
@@ -73,6 +85,7 @@ async def startgame(ctx: Context, *member_names_for_game):
     )
 
     game_state = OneWithDeathGame(
+        id=f"owd-{ctx.author}",
         members=[
             MemberInfo(id=member.id, name=member.name, mention=member.mention)
             for member in game_members
@@ -85,6 +98,77 @@ async def startgame(ctx: Context, *member_names_for_game):
 
     RUNNING_GAMES.append(game_state)
     save_game_state(RUNNING_GAMES)
+
+
+@bot.command()
+def endgame(ctx: Context, game_id: Optional[str]=None):
+    # TODO: allow admins to manually specify game id, but only admins
+    if not game_id:
+        game_id = find_game_by_member_id(ctx.author.id).id
+        if not game_id:
+            # TODO: better error message
+            ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+
+    game_index_list = [i for i, g in enumerate(RUNNING_GAMES) if g.id == game_id]
+
+    if not game_index_list:
+        ctx.send(f"Game with id {game_id} was not found")
+    else:
+        game_index = game_index_list[0]
+        game = RUNNING_GAMES[0]
+        global RUNNING_GAMES
+        RUNNING_GAMES = [*RUNNING_GAMES[:game_index], *RUNNING_GAMES[game_index:]]
+        save_game_state(RUNNING_GAMES)
+
+        ctx.guild.get_channel(game.text_channel).delete()
+        ctx.guild.get_channel(game.voice_channel).delete()
+
+
+@bot.command()
+def draw(ctx: Context, num_cards_str: str="1"):
+    try:
+        num_cards = int(num_cards_str)
+    except ValueError:
+        ctx.send(f"ERROR: {num_cards} is not a valid number")
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+        return
+    
+    drawn_cards = game.library.draw(num_cards)
+    save_game_state(RUNNING_GAMES)
+    
+    # TODO: where do I get card pictures from?
+    content = f"You drew these {num_cards} cards: {', '.join(drawn_cards)}. Here's their pictures:"
+    ctx.author.send(content)
+
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    if game_channel != ctx.channel:
+        game_channel.send(f"{ctx.author} drew {num_cards} cards")
+
+
+@bot.command()
+def scry(ctx: Context, num_cards_str: str="1"):
+    try:
+        num_cards = int(num_cards_str)
+    except ValueError:
+        ctx.send(f"ERROR: {num_cards} is not a valid number")
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+        return
+    
+    scryed_cards = game.library.scry(num_cards)
+    
+    # TODO: where do I get card pictures from?
+    content = f"You scryed these {num_cards} cards: {', '.join(scryed_cards)}. Here's their pictures:"
+    ctx.author.send(content)
+
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    if game_channel != ctx.channel:
+        game_channel.send(f"{ctx.author} scryed {num_cards} cards")
 
 
 def main():

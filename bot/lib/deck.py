@@ -12,8 +12,7 @@ class Deck():
         Returns and removes the top specified number of cards from the deck
         """
         if len(self.cards) < num_cards:
-            # is this even possible with re-shuffles of One With Death?
-            raise ValueError(f"Attempted to draw {num_cards} cards, but only {len(self.cards)} are in the deck")
+            num_cards = len(self.cards)
         
         drawn_cards = self.cards[:num_cards]
         self.cards = self.cards[num_cards:]

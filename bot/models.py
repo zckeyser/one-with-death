@@ -1,7 +1,8 @@
 from dataclasses import dataclass, asdict, is_dataclass
+from datetime import datetime
 from typing import Optional
 
-from deck import Deck
+from lib.deck import Deck
 
 
 class SerializableDataclass():
@@ -22,6 +23,7 @@ class MemberInfo(SerializableDataclass):
 
 @dataclass
 class OneWithDeathGame(SerializableDataclass):
+    id: str
     members: list[MemberInfo]
     library: Deck
     graveyard: Deck
@@ -29,10 +31,12 @@ class OneWithDeathGame(SerializableDataclass):
     voice_channel: str
 
     waiting_for_response_from: Optional[MemberInfo]=None
+    game_started: datetime
 
     @classmethod
     def from_dict(cls, d: dict[str, any]) -> 'OneWithDeathGame':
         return cls(
+            id=d['id'],
             members=[MemberInfo(**member_info) for member_info in d['members']],
             library=Deck(d['library']),
             graveyard=Deck(d['graveyard']),
