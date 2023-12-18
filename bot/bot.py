@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 import os
 
 import disnake
@@ -7,16 +8,21 @@ from disnake.ext import commands
 from disnake.ext.commands.context import Context
 from disnake.member import Member
 
-from models import Card, MemberInfo, OneWithDeathGame
+from constants import DECKLIST_FILE
+from lib.deck import Deck
+from lib.game_state import load_game_state, save_game_state
+from models import MemberInfo, OneWithDeathGame
 
-running_games = {}
+with open("api_key.txt", "r") as f:
+    TOKEN = f.read()
+
+
+# TODO: refactor this into a singleton or something -- in-memory data layer? SQLite?
+RUNNING_GAMES: list[OneWithDeathGame] = []
 
 intents = disnake.Intents.default()
 intents.message_content = True
 intents.members = True
-
-with open("api_key.txt", "r") as f:
-    TOKEN = f.read()
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -66,13 +72,28 @@ async def startgame(ctx: Context, *member_names_for_game):
         f"New channels created for a One With Death game hosted by {ctx.author.name}, including the players {', '.join([member.name for member in game_members[:-1]])} and {game_members[-1].name}"
     )
 
-    game_state = GameState
+    game_state = OneWithDeathGame(
+        members=[
+            MemberInfo(id=member.id, name=member.name, mention=member.mention)
+            for member in game_members
+        ],
+        library=Deck.from_file(DECKLIST_FILE),
+        text_channel=text_channel.id,
+        voice_channel=voice_channel.id,
+        waiting_for_response_from=None
+    )
+
+    RUNNING_GAMES.append(game_state)
+    save_game_state(RUNNING_GAMES)
 
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send("Pong")
+def main():
+    global RUNNING_GAMES
+    RUNNING_GAMES = load_game_state()
+
+    print("Running bot...")
+    bot.run(TOKEN)
 
 
-print("Running bot...")
-bot.run(TOKEN)
+if __name__ == '__main__':
+    main()

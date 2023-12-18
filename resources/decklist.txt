@@ -1,0 +1,81 @@
+11 One with Death
+4 Nix
+1 Angel's Grace
+1 Arcane Infusion
+1 Archmage's Charm
+1 Blood Pact
+1 Boggart Forager
+1 Broken Ambitions
+1 Calculated Dismissal
+1 Candy Trail
+1 Careful Consideration
+1 Cerebral Vortex
+1 Chain to Memory
+1 Clash of Wills
+1 Condescend
+1 Cursecatcher
+1 Deep Analysis
+1 Deliberate
+1 Diabolic Vision
+1 Discombobulate
+1 Disrupt
+1 Everybody Lives!
+1 Flame of Anor
+1 Flusterstorm
+1 Fold into Aether
+1 Force Spike
+1 Forget
+1 Gitaxian Probe
+1 Glimpse of Freedom
+1 Grip of Amnesia
+1 Hinder
+1 Howling Mine
+1 Induced Amnesia
+1 Izzet Charm
+1 Jace Beleren
+1 Joint Exploration
+1 Judge's Familiar
+1 Lapse of Certainty
+1 Lore Broker
+1 Lose Hope
+1 Magma Jet
+1 Master of the Feast
+1 Memory Lapse
+1 Mindswipe
+1 Minor Misstep
+1 Molten Influence
+1 Mystic Speculation
+1 Omen of the Sea
+1 Oona's Grace
+1 Opt
+1 Otherworldly Gaze
+1 Overrule
+1 Overwhelming Denial
+1 Ponder
+1 Predict
+1 Preordain
+1 Ray of Erasure
+1 Reverse the Polarity
+1 Sapphire Dragon // Psionic Pulse
+1 Scour All Possibilities
+1 Serum Visions
+1 Soldier of Fortune
+1 Soothsaying
+1 Spell Burst
+1 Spell Crumple
+1 Spellshift
+1 Spy Network
+1 Stubborn Denial
+1 Stymied Hopes
+1 Sudden Substitution
+1 Supreme Will
+1 Syncopate
+1 Telling Time
+1 Think Twice
+1 Tibalt's Trickery
+1 Trickery Charm
+1 Vision Skeins
+1 Wash Away
+1 Winds of Change
+1 Witching Well
+1 Words of Wisdom
