@@ -23,16 +23,28 @@ class MemberInfo(SerializableDataclass):
 
 
 @dataclass
+class RequiredResponse(SerializableDataclass):
+    member: MemberInfo
+    action: str
+    waiting_for_response_number: int
+
+
+@dataclass
 class OneWithDeathGame(SerializableDataclass):
     id: str
     members: list[MemberInfo]
-    library: Deck
+    deck: Deck
     text_channel: str
     voice_channel: str
 
     graveyard: Graveyard = field(default_factory=lambda: Graveyard())
     game_started: datetime = field(default_factory=lambda: datetime.now())
-    waiting_for_response_from: Optional[MemberInfo]=None
+    # ID of the member we're waiting on a response from
+    waiting_for_response_from: Optional[str]=None
+    # action we're waiting for a response on
+    waiting_for_response_action: Optional[str]=None
+    # if there's a number associated with an action, e.g. scry 4 -> reorder 4
+    waiting_for_response_number: Optional[int]=None
 
     @classmethod
     def from_dict(cls, d: dict[str, any]) -> 'OneWithDeathGame':
@@ -43,7 +55,10 @@ class OneWithDeathGame(SerializableDataclass):
             graveyard=Graveyard(**d['graveyard']),
             text_channel=d['text_channel'],
             voice_channel=d['voice_channel'],
-            waiting_for_response_from=MemberInfo(**d['waiting_for_response_from']) if 'waiting_for_response_from' in d and d['waiting_for_response_from'] else None
+            waiting_for_response_from=MemberInfo(**d['waiting_for_response_from']) if 'waiting_for_response_from' in d and d['waiting_for_response_from'] else None,
+            waiting_for_response_action=d.get('waiting_for_response_action'),
+            waiting_for_response_number=d.get('waiting_for_response_number'),
+            game_started=datetime.fromisoformat(d['game_started']) if d.get('game_started') else datetime.now()
         )
 
     def to_dict(self) -> dict[str, Union[str, MemberInfo, Deck]]:

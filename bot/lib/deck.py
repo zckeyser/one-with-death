@@ -1,3 +1,5 @@
+from disnake.utils import find
+
 import os
 from dataclasses import dataclass
 from random import randint
@@ -5,16 +7,20 @@ from random import randint
 @dataclass
 class Deck():
     cards: list[str]
+    _drawn_cards: list[str] = []
+    # to hold OWD cards while waiting for them to resolve
+    _waiting_to_resolve: list[str] = []
 
     def draw(self, num_cards: int=1) -> list[str]:
         """
         Returns and removes the top specified number of cards from the deck
         """
         num_cards = min(num_cards, len(self.cards))
-        print(type(num_cards))
-        print(type(self.cards))
         drawn_cards = self.cards[:num_cards]
         self.cards = self.cards[num_cards:]
+
+        self._drawn_cards.extend([c for c in drawn_cards if c != 'One With Death'])
+        self._waiting_to_resolve.extend([c for c in drawn_cards if c == 'One With Death'])
 
         return drawn_cards
 
@@ -54,6 +60,28 @@ class Deck():
         self.cards = [*new_top_cards, self.cards[len(new_top_cards):]]
     
         print(f"Swapped top cards in deck:\nOriginal: {curr_top_cards}\nNew: {new_top_cards}")
+
+
+    def play(self, card: str) -> str:
+        card_indexes = [i for i, c in enumerate(self._drawn_cards) if c.lower() == card.lower()]
+
+        if not card_indexes:
+            raise ValueError(f"Card {card} is not in the drawn cards from this Deck of Death")
+
+        card_to_return = self._drawn_cards.pop(card_indexes[0])
+
+        return card_to_return
+
+    def resolve(self, card: str) -> str:
+        card_indexes = [i for i, c in enumerate(self._waiting_to_resolve) if c.lower() == card.lower()]
+
+        if not card_indexes:
+            raise ValueError(f"Card {card} is not in the cards waiting to be resolved from this Deck of Death")
+
+        card_to_return = self._waiting_to_resolve.pop(card_indexes[0])
+        if card_to_return == 'One With Death'
+
+        return card_to_return
 
 
     @classmethod

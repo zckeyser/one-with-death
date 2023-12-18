@@ -6,3 +6,5 @@ def _get_filepath_relative_to_this_file(rel_filepath: str) -> str:
 
 DECKLIST_FILE = _get_filepath_relative_to_this_file("../resources/decklist.txt")
 GAME_STATE_FILE = _get_filepath_relative_to_this_file("../state/game_state.json")
+
+LIST_DELIMITER = ';'
