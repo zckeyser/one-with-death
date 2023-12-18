@@ -11,6 +11,7 @@ from disnake.member import Member
 
 from constants import DECKLIST_FILE
 from lib.deck import Deck
+from lib.graveyard import Graveyard
 from lib.game_state import load_game_state, save_game_state
 from models import MemberInfo, OneWithDeathGame
 
@@ -30,7 +31,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def find_game_by_member_id(member_id: str) -> OneWithDeathGame:
     games_with_member = [
-        game for game in RUNNING_GAMES if any([member.id for member in game if member.id == member_id])
+        game for game in RUNNING_GAMES if any([member.id for member in game.members if member.id == member_id])
     ]
     if games_with_member:
         if len(games_with_member) > 1:
@@ -68,13 +69,13 @@ async def startgame(ctx: Context, *member_names_for_game):
     if admin_role:
         overwrites[admin_role] = disnake.PermissionOverwrite(view_channel=True)
 
-    text_channel_name = f"one-with-death-{ctx.author}"
+    text_channel_name = f"{ctx.author}-one-with-death"
     print(f"Creating text channel {text_channel_name}")
     text_channel: TextChannel = await ctx.guild.create_text_channel(
         text_channel_name, overwrites=overwrites
     )
 
-    voice_channel_name = f"one-with-death-vc-{ctx.author}"
+    voice_channel_name = f"{ctx.author}-one-with-death-vc"
     print(f"Creating voice channel {voice_channel_name}")
     voice_channel: VoiceChannel = await ctx.guild.create_voice_channel(
         voice_channel_name, overwrites=overwrites
@@ -90,7 +91,7 @@ async def startgame(ctx: Context, *member_names_for_game):
             MemberInfo(id=member.id, name=member.name, mention=member.mention)
             for member in game_members
         ],
-        library=Deck.from_file(DECKLIST_FILE),
+        library=Deck.from_file(DECKLIST_FILE, f"owd-{ctx.author.name}-library"),
         text_channel=text_channel.id,
         voice_channel=voice_channel.id,
         waiting_for_response_from=None
@@ -101,39 +102,39 @@ async def startgame(ctx: Context, *member_names_for_game):
 
 
 @bot.command()
-def endgame(ctx: Context, game_id: Optional[str]=None):
+async def endgame(ctx: Context, game_id: Optional[str]=None):
     # TODO: allow admins to manually specify game id, but only admins
     if not game_id:
         game_id = find_game_by_member_id(ctx.author.id).id
         if not game_id:
             # TODO: better error message
-            ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+            await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
 
     game_index_list = [i for i, g in enumerate(RUNNING_GAMES) if g.id == game_id]
 
     if not game_index_list:
-        ctx.send(f"Game with id {game_id} was not found")
+        await ctx.send(f"Game with id {game_id} was not found")
     else:
         game_index = game_index_list[0]
         game = RUNNING_GAMES[0]
-        global RUNNING_GAMES
-        RUNNING_GAMES = [*RUNNING_GAMES[:game_index], *RUNNING_GAMES[game_index:]]
+        del RUNNING_GAMES[game_index]
         save_game_state(RUNNING_GAMES)
 
-        ctx.guild.get_channel(game.text_channel).delete()
-        ctx.guild.get_channel(game.voice_channel).delete()
+        await ctx.guild.get_channel(game.text_channel).delete()
+        await ctx.guild.get_channel(game.voice_channel).delete()
 
 
 @bot.command()
-def draw(ctx: Context, num_cards_str: str="1"):
+async def draw(ctx: Context, num_cards_str: str="1"):
     try:
         num_cards = int(num_cards_str)
     except ValueError:
-        ctx.send(f"ERROR: {num_cards} is not a valid number")
+        await ctx.send(f"ERROR: {num_cards} is not a valid number")
+        return
     
     game = find_game_by_member_id(ctx.author.id)
     if not game:
-        ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
         return
     
     drawn_cards = game.library.draw(num_cards)
@@ -141,34 +142,50 @@ def draw(ctx: Context, num_cards_str: str="1"):
     
     # TODO: where do I get card pictures from?
     content = f"You drew these {num_cards} cards: {', '.join(drawn_cards)}. Here's their pictures:"
-    ctx.author.send(content)
+    await ctx.author.send(content)
 
     game_channel = ctx.guild.get_channel(game.text_channel)
     if game_channel != ctx.channel:
-        game_channel.send(f"{ctx.author} drew {num_cards} cards")
+        await game_channel.send(f"{ctx.author} drew {num_cards} cards")
 
 
 @bot.command()
-def scry(ctx: Context, num_cards_str: str="1"):
+async def scry(ctx: Context, num_cards_str: str="1"):
     try:
         num_cards = int(num_cards_str)
     except ValueError:
-        ctx.send(f"ERROR: {num_cards} is not a valid number")
+        await ctx.send(f"ERROR: {num_cards} is not a valid number")
+        return
     
     game = find_game_by_member_id(ctx.author.id)
     if not game:
-        ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
+        print(RUNNING_GAMES)
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.name} is currently playing in")
         return
     
     scryed_cards = game.library.scry(num_cards)
     
     # TODO: where do I get card pictures from?
     content = f"You scryed these {num_cards} cards: {', '.join(scryed_cards)}. Here's their pictures:"
-    ctx.author.send(content)
+    await ctx.author.send(content)
 
     game_channel = ctx.guild.get_channel(game.text_channel)
     if game_channel != ctx.channel:
-        game_channel.send(f"{ctx.author} scryed {num_cards} cards")
+        await game_channel.send(f"{ctx.author} scryed {num_cards} cards")
+
+
+@bot.command()
+async def play(ctx: Context):
+    pass
+
+@bot.command()
+async def buyback(ctx: Context):
+    pass
+
+@bot.command()
+async def flashback(ctx: Context):
+    pass
+
 
 
 def main():

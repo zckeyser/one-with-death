@@ -1,2 +1,4 @@
 api_key.txt
 oauth_secret.txt
+*.pyc
+bot/state/game_state.json
