@@ -38,6 +38,7 @@ class OneWithDeathGame(SerializableDataclass):
     voice_channel: str
 
     graveyard: Graveyard = field(default_factory=lambda: Graveyard())
+    exile: list[str] = field(default_factory=lambda: [])
     game_started: datetime = field(default_factory=lambda: datetime.now())
     # ID of the member we're waiting on a response from
     waiting_for_response_from: Optional[str]=None
@@ -51,7 +52,7 @@ class OneWithDeathGame(SerializableDataclass):
         return cls(
             id=d['id'],
             members=[MemberInfo(**member_info) for member_info in d['members']],
-            library=Deck(**d['library']),
+            deck=Deck(**d['deck']),
             graveyard=Graveyard(**d['graveyard']),
             text_channel=d['text_channel'],
             voice_channel=d['voice_channel'],
@@ -62,6 +63,10 @@ class OneWithDeathGame(SerializableDataclass):
         )
 
     def to_dict(self) -> dict[str, Union[str, MemberInfo, Deck]]:
-        d = super().to_dict()
+        d = {
+            k: asdict(v) if is_dataclass(v) else v
+            for k, v
+            in asdict(self).items()
+        }
         d['game_started'] = d['game_started'].isoformat()
         return d
