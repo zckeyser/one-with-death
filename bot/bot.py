@@ -1,7 +1,3 @@
-from dataclasses import dataclass
-import json
-import os
-import traceback
 from typing import Optional
 
 import disnake
@@ -14,12 +10,16 @@ from disnake.utils import find
 
 from constants import DECKLIST_FILE, LIST_DELIMITER
 from lib.deck import Deck
-from lib.graveyard import Graveyard
 from lib.game_state import load_game_state, save_game_state
 from models import MemberInfo, OneWithDeathGame
 
 with open("api_key.txt", "r") as f:
     TOKEN = f.read()
+
+
+# TODO: refactor this into separate modules for different commands
+    
+# TODO: figure out how to reduce game finding/checking boilerplate
 
 
 # TODO: refactor this into a singleton or something -- in-memory data layer? SQLite?
@@ -95,7 +95,7 @@ async def startgame(ctx: Context, *member_names_for_game: list[str]):
             MemberInfo(id=member.id, name=member.name, mention=member.mention)
             for member in game_members
         ],
-        deck=Deck.from_file(DECKLIST_FILE, f"owd-{ctx.author.display_name}-library"),
+        deck=Deck.from_file(decklist_file=DECKLIST_FILE, member_ids=[member.id for member in game_members]),
         text_channel=text_channel.id,
         voice_channel=voice_channel.id
     )
@@ -199,20 +199,14 @@ async def draw(ctx: Context, num_cards_str: str="1"):
         await game_channel.send(f"{ctx.author.mention} drew One with Death!")
 
 
-@bot.command()
-async def scry(ctx: Context, num_cards_str: str=1):
-    """
-    Peek at the top cards of the Deck of Death
-
-    Must be followed by a !reorder command to re-order the scried cards.
-    """
+async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: str):
     game = find_game_by_member_id(ctx.author.id)
     if not game:
-        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.ndisplay_nameame} is currently playing in")
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.display_name} is currently playing in")
         return
     
     if game.waiting_for_response_from:
-        await ctx.send(f"Currently waiting to resolve an action ({game.waiting_for_response_action}) from player {game.waiting_for_response_from}, so no other actions can be taken")
+        await ctx.send(f"Currently waiting to resolve an action ({game.waiting_for_response_action}) from {game.waiting_for_response_from.name}, so no other actions can be taken")
         return
 
     try:
@@ -225,13 +219,22 @@ async def scry(ctx: Context, num_cards_str: str=1):
     scryed_cards = game.deck.peek(num_cards)
     
     # TODO: where do I get card pictures from?
-    content = f"You scryed these {num_cards} cards: {', '.join(scryed_cards)}."
+    numbered_cards = [f"{i + 1}. {scryed_cards}" for i in range(len(scryed_cards))]
+    cards_display = '\n'.join(numbered_cards)
+    content = f"You scryed these {num_cards} cards:\n{cards_display}."
     await ctx.author.send(content)
 
-    await ctx.author.send("Respond to me with a `!reorder` command with the re-ordered cards, separated by semicolons (;). To leave the deck in the same order you saw, simply run !reorder with no arguments.")
+
+    input_directions = ''
+    if follow_up_action == "reorder:scry":
+        input_directions = ", grouped by top/bottom as a prefixing word.\n\nFor example, for a scry 3 you might write: `!reorder top 1 2 bottom 3`."
+    elif follow_up_action == "reorder:rearrange":
+        input_directions = ".\n\nFor example, for a scry 3 you might write: `!reorder 3 1 2`."
+
+    await ctx.author.send(f"Respond to me with a `!reorder` command with the re-ordered card numbers, separated by spaces {input_directions}")
 
     game.waiting_for_response_from = MemberInfo(ctx.author.id, ctx.author.display_name, ctx.author.mention)
-    game.waiting_for_response_action = 'reorder'
+    game.waiting_for_response_action = follow_up_action
     game.waiting_for_response_number = num_cards
     save_game_state(RUNNING_GAMES)
 
@@ -242,17 +245,42 @@ async def scry(ctx: Context, num_cards_str: str=1):
 
 
 @bot.command()
+async def scry(ctx: Context, num_cards_str: str):
+    """
+    Peek at the top cards of the Deck of Death, then gain the ability to re-arrange those cards as desired on the top and bottom of the deck.
+
+    Must be followed by a !reorder command to re-order the scried cards.
+    A !reorder for a scry is in the format: !reorder top 1 2 bottom 3
+    In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
+    """
+    await peek_for_reorder(ctx, num_cards_str, "reorder:scry")
+
+
+@bot.command()
+async def rearrange(ctx: Context, num_cards_str: str):
+    """
+    Peek at the top cards of the Deck of Death, then gain the ability to re-arrange those cards as desired on the top and bottom of the deck.
+
+    Must be followed by a !reorder command to re-order the scried cards.
+    A !reorder for a rearrange is in the format: !reorder 3 1 2 
+    In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
+    """
+    await peek_for_reorder(ctx, num_cards_str, "reorder:rearrange")
+
+
+@bot.command()
 async def reorder(ctx: Context, *new_top_cards):
     """
-    Re-order cards from a scry action
-
     Can only be used after a scry command was just run by the same player.
     Give the command the cards you're re-ordering in the order that you want them, separated by semicolons (;).
     If no argument is given, the re-order will resolve without changing the card order.
-    """
-    # re-join the words of the cards then split on the actual delimiter we're using
-    new_top_cards = ' '.join(new_top_cards).split(LIST_DELIMITER)
 
+    Examples:
+    
+    For a scry                     -> !reorder top 1 2 bottom 3
+    For a scry where all go on top -> !reorder top 1 2
+    For a rearrange                -> !reorder 1 2 3
+    """
     game = find_game_by_member_id(ctx.author.id)
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.display_name} is currently playing in")
@@ -262,18 +290,21 @@ async def reorder(ctx: Context, *new_top_cards):
         await ctx.send(f"I'm currently waiting to resolve an action ({game.waiting_for_response_action}) from player {game.waiting_for_response_from}, so no other actions can be taken")
         return
 
-    if game.waiting_for_response_action != "reorder":
-        await ctx.send(f"I'm currently waiting to resolve action {game.waiting_for_response_action}, so a re-order is not valid")
+    if game.waiting_for_response_action not in ["reorder:scry", "reorder:rearrange"]:
+        await ctx.send(f"I'm currently waiting to resolve a non-reorder action {game.waiting_for_response_action} from you, so a re-order is not valid")
         return
 
     if game.waiting_for_response_number != len(new_top_cards):
-        await ctx.send(f"I expected to be re-ordering {game.waiting_for_response_number} cards, but instead I got {len(new_top_cards)} {new_top_cards}. Was an extra semicolon added somewhere?")
+        await ctx.send(f"I expected to be re-ordering {game.waiting_for_response_number} cards, but instead I got {len(new_top_cards)} ({new_top_cards}).")
 
     # At this point, we know it's the right player making a valid action type
     try:
-        game.deck.reorder(new_top_cards)
+        if game.waiting_for_response_action == "reorder:scry":
+            game.deck.scry_reorder()
+        else:
+            game.deck.rearrange(new_top_cards)
     except ValueError as e:
-        # send through the error if the list of cards doesn't line up with the top of the deck
+        # send through the error if the card indexes are wrong
         await ctx.send(e)
         return
     
@@ -395,6 +426,47 @@ async def hand(ctx: Context):
 
 
 @bot.command()
+async def graveyard(ctx: Context):
+    """
+    Get a list of cards currently in the graveyard for the Deck of Death
+    """
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.display_name} is currently playing in")
+        return
+
+    if game.graveyard.cards:
+        content = "The graveyard for the Deck of Death has these cards:\n"
+        content += "```"
+        content += "\n".join(game.graveyard.cards)
+        content += "```"
+        await ctx.send(content)
+    else:
+        await ctx.send("The graveyard for the Deck of Death is empty")
+
+
+@bot.command()
+async def exile(ctx: Context):
+    """
+    Get a list of cards exiled from the Deck of Death
+    """
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.display_name} is currently playing in")
+        return
+
+    if game.exile:
+        content = "The exile pile for the Deck of Death has these cards:\n"
+        content += "```"
+        content += "\n".join(game.exile)
+        content += "```"
+        await ctx.send(content)
+    else:
+        await ctx.send("The graveyard for the Deck of Death is empty")
+
+
+@bot.command()
 async def decksize(ctx: Context):
     """
     Get the current size of the Deck of Death
@@ -409,7 +481,6 @@ async def decksize(ctx: Context):
 @bot.command()
 async def rules(ctx: Context):
     ctx.send("These still need to be defined :)")
-
 
 
 def main():

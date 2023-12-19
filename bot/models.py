@@ -40,8 +40,8 @@ class OneWithDeathGame(SerializableDataclass):
     graveyard: Graveyard = field(default_factory=lambda: Graveyard())
     exile: list[str] = field(default_factory=lambda: [])
     game_started: datetime = field(default_factory=lambda: datetime.now())
-    # ID of the member we're waiting on a response from
-    waiting_for_response_from: Optional[str]=None
+    # name of the member we're waiting on a response from
+    waiting_for_response_from: Optional[MemberInfo]=None
     # action we're waiting for a response on
     waiting_for_response_action: Optional[str]=None
     # if there's a number associated with an action, e.g. scry 4 -> reorder 4

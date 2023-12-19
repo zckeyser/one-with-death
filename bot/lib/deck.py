@@ -1,15 +1,8 @@
-from disnake.utils import find
-
 import os
-from collections import defaultdict
 from dataclasses import dataclass, field
 from random import randint
 
-def sanitize_card_name(card_name: str) -> str:
-    """
-    Sanitizes a card name to not include uppercase characters or quotes, to be used for comparison
-    """
-    return card_name.lower().replace('\'', '').replace('"', '')
+from lib.util import sanitize_card_name
 
 
 @dataclass
@@ -61,31 +54,50 @@ class Deck():
             self.cards[i], self.cards[j] = self.cards[j], self.cards[i]
 
 
-    def reorder(self, new_top_cards: list[str]):
+    def reorder_scry(self, new_top_card_indexes: list[int], new_bottom_card_indexes: list[int]):
         """
-        Re-writes the top cards of the deck into the given group
+        Re-writes the top cards of the deck into the given order, re-grouping cards on either or both of the top or bottom of the deck.
 
-        NOTE: this will throw an error if the new top cards are not the same as the inputted cards
+        NOTE: this will throw an error if the card indexes do not contain 1..n, where n is the total number of card submitted for re-ordering.
         """
-        curr_top_cards = self.cards[len(new_top_cards)]
-        cards_match = [sanitize_card_name(c) for c in sorted(curr_top_cards)] != [(sanitize_card_name(c) for c in sorted(new_top_cards))]
-        if not cards_match:
-            raise ValueError("The list of re-ordered cards are not the same cards as in the deck.")
-        
-        # pull the formatted card name from the deck instead of the message to keep it looking clean
-        new_top_cards_formatted = [
-            [
-                system_card_name
-                for system_card_name in curr_top_cards
-                if sanitize_card_name(system_card_name) == sanitize_card_name(user_card_name)
-            ][0]
-            for user_card_name
-            in new_top_cards
-        ]
+        expected_card_indexes = [i + 1 for i in range(len(new_top_card_indexes) + len(new_bottom_card_indexes))]
+        total_card_indexes = sorted([*new_top_card_indexes, *new_bottom_card_indexes])
 
-        self.cards = [*new_top_cards_formatted, self.cards[len(new_top_cards):]]
-    
-        print(f"Swapped top cards in deck:\nOriginal: {curr_top_cards}\nNew: {new_top_cards_formatted}")
+        if expected_card_indexes != total_card_indexes:
+            raise ValueError(f"Invalid card indexes for rearrange re-ordering provided: {[i for i in total_card_indexes if i not in expected_card_indexes]}")
+
+        # grab the slices to put on top and bottom
+        # the indexes provided by users are 1-based for easier usability
+        new_top_cards = [self.cards[i - 1] for i in new_top_card_indexes]
+        new_bottom_cards = [self.cards[i - 1] for i in new_bottom_card_indexes]
+
+        # chop off the cards being re-ordered from the top
+        self.cards = self.cards[len(total_card_indexes):]
+        self.cards = [*new_top_cards, *self.cards, *new_bottom_cards]
+
+        print(f"Re-ordered {len(total_card_indexes)} cards as a scry re-order")
+
+
+    def reorder_rearrange(self, new_top_card_indexes: list[int]):
+        """
+        Re-writes the top cards of the deck into the given order, only allowing cards to go to the top of the deck.
+
+        NOTE: this will throw an error if the card indexes do not contain 1..n, where n is the total number of card submitted for re-ordering.
+        """
+        expected_card_indexes = [i + 1 for i in range(len(new_top_card_indexes))]
+
+        if expected_card_indexes != sorted(new_top_card_indexes):
+            raise ValueError(f"Invalid card indexes for rearrange re-ordering provided: {[i for i in new_top_card_indexes if i not in expected_card_indexes]}")
+
+        # grab the slice to put on top 
+        # the indexes provided by users are 1-based for easier usability
+        new_top_cards = [self.cards[i - 1] for i in new_top_card_indexes]
+
+        # chop off the cards being re-ordered from the top
+        self.cards = self.cards[len(new_top_card_indexes):]
+        self.cards = [*new_top_cards, *self.cards]
+
+        print(f"Re-ordered {len(new_top_card_indexes)} cards as a rearrange re-order")
 
 
     def play(self, card: str, member_id: int) -> str:
@@ -97,7 +109,7 @@ class Deck():
         if not card_indexes:
             raise ValueError(f"Card {card} is not in your Deck of Death hand")
 
-        card_to_return = self._hands[member_id].pop(card_indexes[0])
+        card_to_return = self._hands[member_id_str].pop(card_indexes[0])
 
         return card_to_return
 
@@ -116,7 +128,7 @@ class Deck():
         return resolved_card
     
 
-    def buyback(self, card: str, member_id: str):
+    def buyback(self, card: str, member_id: int):
         """
         Support the case of a buy-back where a card is playable again despite having just been played and thus removed
         """
@@ -129,7 +141,7 @@ class Deck():
             self._hands[member_id_str] = [card]
 
 
-    def get_hand(self, member_id: str) -> list[str]:
+    def get_hand(self, member_id: int) -> list[str]:
         # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
         member_id_str = str(member_id)
         if member_id_str in self._hands:
@@ -138,12 +150,24 @@ class Deck():
             return []
 
 
+    def add_card_to_hand(self, member_id: int, card_name: str):
+        # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
+        member_id_str = str(member_id)
+        if member_id_str in self._hands:
+            self._hands[member_id_str].append(card_name)
+        else:
+            self._hands[member_id_str] = [card_name]
+
+
     @classmethod
-    def from_file(cls, decklist_file: str, shuffle: bool=True):
+    def from_file(cls, decklist_file: str, member_ids: list[int]=None, shuffle: bool=True):
         """
         Parses a deck from a decklist file, where each line specifies a count of a card then the card name, delimited by a space
         e.g. 11 One with Death
         """
+        if not member_ids:
+            member_ids = []
+
         if not os.path.exists(decklist_file):
             raise FileNotFoundError(f"Could not find file {decklist_file} to initialize decklist")
         
@@ -162,4 +186,7 @@ class Deck():
         if shuffle:
             deck.shuffle()
         
+        for member_id in member_ids:
+            deck.add_card_to_hand(member_id=member_id, card_name="Nix")
+
         return deck
