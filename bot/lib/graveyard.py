@@ -43,3 +43,12 @@ class Graveyard():
             raise CardMissingFlashbackError(f"{actual_card_name} doesn't have flashback")
         
         return self.cards.pop(card_in_grave_index)
+
+
+    def get_recurrable_cards(self) -> list[str]:
+        """
+        Get a list of cards currently in the graveyard with a recurrence effect.
+        """
+        flashback_cards = get_card_list("flashback")
+
+        return [c for c in self.cards if c in flashback_cards]

@@ -6,3 +6,6 @@ class CardMissingFlashbackError(Exception):
 
 class CardMissingBuybackError(Exception):
     pass
+
+class InvalidBuybackError(Exception):
+    pass

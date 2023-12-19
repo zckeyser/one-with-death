@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from random import randint
 
+from errors import InvalidBuybackError
 from lib.util import sanitize_card_name
 
 
@@ -12,6 +13,7 @@ class Deck():
     _drawn_cards: list[str] = field(default_factory=lambda: [])
     # to hold OWD cards while waiting for them to resolve
     _waiting_to_resolve: list[str] = field(default_factory=lambda: [])
+    _last_card_played: str = None
 
     def draw(self, member_id: int, num_cards: int=1) -> list[str]:
         """
@@ -30,7 +32,6 @@ class Deck():
             self._hands[member_id_str] = normal_drawn_cards
         self._waiting_to_resolve.extend([c for c in drawn_cards if c == 'One with Death'])
 
-        print(self._hands)
         return drawn_cards
 
 
@@ -71,6 +72,7 @@ class Deck():
         new_top_cards = [self.cards[i - 1] for i in new_top_card_indexes]
         new_bottom_cards = [self.cards[i - 1] for i in new_bottom_card_indexes]
 
+        print(f"Moving {new_top_cards} to the top and {new_bottom_cards} to the bottom")
         # chop off the cards being re-ordered from the top
         self.cards = self.cards[len(total_card_indexes):]
         self.cards = [*new_top_cards, *self.cards, *new_bottom_cards]
@@ -111,6 +113,8 @@ class Deck():
 
         card_to_return = self._hands[member_id_str].pop(card_indexes[0])
 
+        self._last_card_played = card_to_return
+
         return card_to_return
 
 
@@ -133,12 +137,22 @@ class Deck():
         Support the case of a buy-back where a card is playable again despite having just been played and thus removed
         """
         # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
+        if not self.is_buyback_valid(card):
+            raise InvalidBuybackError()
+
         member_id_str = str(member_id)
 
         if member_id_str in self._hands:
             self._hands[member_id_str].append(card)
         else:
             self._hands[member_id_str] = [card]
+
+
+    def is_buyback_valid(self, card: str) -> bool:
+        """
+        Check if a buyback is valid, i.e. the last card played is equivalent to the buyback card
+        """
+        return sanitize_card_name(card) == sanitize_card_name(self._last_card_played)
 
 
     def get_hand(self, member_id: int) -> list[str]:
