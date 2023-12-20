@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 def _get_filepath_relative_to_this_file(rel_filepath: str) -> str:
@@ -10,4 +11,8 @@ RESOURCES_FOLDER = _get_filepath_relative_to_this_file("../resources/")
 
 CARD_LIST_FILE_TEMPLATE = os.path.join(RESOURCES_FOLDER, '{category}_cards.txt')
 
+GAME_TIMEOUT = timedelta(weeks=1)
+
 LIST_DELIMITER = ';'
+
+MAX_AUX_HAND_SIZE = 3

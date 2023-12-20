@@ -1,19 +1,23 @@
-from traceback import print_exc
-from typing import Optional
+import sys
+from copy import deepcopy
+from traceback import print_exception
+from typing import Optional, Union
 
 import disnake
 from disnake.channel import TextChannel, VoiceChannel
 from disnake.ext import commands
 from disnake.ext.commands.context import Context
 from disnake.member import Member
+from disnake.user import User
 from disnake.utils import find
 
 
-from constants import DECKLIST_FILE, LIST_DELIMITER
+from constants import DECKLIST_FILE, MAX_AUX_HAND_SIZE
 from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError
 from lib.deck import Deck
 from lib.game_state import load_game_state, save_game_state
 from models import MemberInfo, OneWithDeathGame
+
 
 with open("api_key.txt", "r") as f:
     TOKEN = f.read()
@@ -39,7 +43,7 @@ def find_game_by_member_id(member_id: str) -> Optional[OneWithDeathGame]:
 
 
 @bot.command()
-async def startgame(ctx: Context, *member_names_for_game: list[str]):
+async def startgame(ctx: Context, *member_names_for_game):
     if not ctx.guild:
         await ctx.send(f"You can only start the game from within the server where you want to play it")
         return
@@ -59,6 +63,7 @@ async def startgame(ctx: Context, *member_names_for_game: list[str]):
 
         game_members.append(members[0])
 
+    # TODO: stop people from starting game if member is already in a game
 
     # create relevant channels
     overwrites = {
@@ -87,7 +92,7 @@ async def startgame(ctx: Context, *member_names_for_game: list[str]):
     )
 
     await ctx.send(
-        f"New channels have been created for a One with Death game hosted by {ctx.author.mention}, including the players {', '.join([member.mention for member in game_members[:-1]])} and {game_members[-1].name}"
+        f"New channels have been created for a One with Death game hosted by {ctx.author.mention}, including the players {', '.join([member.mention for member in game_members[:-1]])} and {game_members[-1].mention}"
     )
 
     # initialize and save game state
@@ -123,7 +128,7 @@ The main important commands are:
 
 `!scry num_cards` - Scry the given number of cards. This command must be followed up with the !reorder command in order to submit the new card order for your scryed cards.
 
-`!reorder card1;card2;card3` - Re-order the cards from a recently run scry. The card names should be separated by semicolons.
+`!reorder 1 2 3` - Re-order the cards from a recently run scry. The card numbers should be separated by a space.
 
 `!help` - See a full list of available commands, or get more detailed help for a command (e.g. !help scry)
 
@@ -161,6 +166,28 @@ async def endgame(ctx: Context, game_id: Optional[str]=None):
         await ctx.guild.get_channel(game.voice_channel).delete()
 
 
+async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, Member], num_cards: int):
+    drawn_cards = game.deck.draw(member_id=member.id, num_cards=num_cards)
+    save_game_state(RUNNING_GAMES)
+    
+    # TODO: include card picture as attachment once I get them from danny
+    drawn_cards_display = '\n'.join(drawn_cards)
+    content = f"You drew {'these' if num_cards > 1 else 'this'} {num_cards} card{'s' if num_cards > 1 else ''}: ```\n{drawn_cards_display}\n```"
+    await member.send(content)
+
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    if game_channel != ctx.channel:
+        await game_channel.send(f"{member.mention} drew {num_cards} cards")
+
+    if any([True for c in drawn_cards if c == 'One with Death']):
+        # TODO: Include OWD image here?
+        await game_channel.send(f"{member.mention} drew One with Death!")
+
+    hand = game.deck.get_hand(member.id)
+    if len(hand) > MAX_AUX_HAND_SIZE:
+        await member.send(f"Your hand size of {len(hand)} is over the limit of {MAX_AUX_HAND_SIZE} cards!")
+
+
 @bot.command()
 async def draw(ctx: Context, num_cards_str: str="1"):
     """
@@ -185,23 +212,93 @@ async def draw(ctx: Context, num_cards_str: str="1"):
         await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
         return
 
-    drawn_cards = game.deck.draw(member_id=ctx.author.id, num_cards=num_cards)
-    save_game_state(RUNNING_GAMES)
+    await handle_draw(ctx, game, ctx.author, num_cards)
+
+
+@bot.command()
+async def drawall(ctx: Context, num_cards_str: str="1"):
+    """
+    Draw cards from the Deck of Death for all players.
+
+    Cards drawn will be DM'd to each player with images of the cards included.
+
+    If a One with Death is drawn, it is automatically put into the resolution stack and the fact it was drawn is sent to the game channel.
+    """
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
+        return
     
-    # TODO: include card picture as attachment once I get them from danny
-    content = f"You drew {'these' if num_cards > 1 else 'this'} {num_cards} card{'s' if num_cards > 1 else ''}: {', '.join(drawn_cards)}"
-    await ctx.author.send(content)
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+    
+    try:
+        num_cards = int(num_cards_str)
+    except:
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        return
+    
+    for member in game.members:
+        await handle_draw(ctx, game, ctx.guild.get_member(member.id), num_cards)
 
-    game_channel = ctx.guild.get_channel(game.text_channel)
-    if game_channel != ctx.channel:
-        await game_channel.send(f"{ctx.author} drew {num_cards} cards")
 
-    if any([True for c in drawn_cards if c == 'One with Death']):
-        # TODO: Include OWD image here?
-        await game_channel.send(f"{ctx.author.mention} drew One with Death!")
+@bot.command()
+async def drawother(ctx: Context, num_cards_str: str="1"):
+    """
+    Draw cards from the Deck of Death for all players except the command submitter.
+
+    Cards drawn will be DM'd to each player with images of the cards included.
+
+    If a One with Death is drawn, it is automatically put into the resolution stack and the fact it was drawn is sent to the game channel.
+    """
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, drawall, drawother, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
+        return
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+    
+    try:
+        num_cards = int(num_cards_str)
+    except:
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        return
+    
+    for member in game.members:
+        if member.id == ctx.author.id:
+            # don't draw for the person submitting the command
+            continue
+        await handle_draw(ctx, game, ctx.guild.get_member(member.id), num_cards)
 
 
-async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: str):
+@bot.command()
+async def redrawexile(ctx: Context):
+    """
+    Exile your entire hand, then re-draw it
+    """
+    pass
+
+@bot.command()
+async def redrawall(ctx: Context):
+    """
+    Put all players hands back into the library, then re-draw them to their original sizes
+    """
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, drawall, drawother, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
+        return
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+
+
+
+async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: Optional[str]=None, action_word="peek"):
     if not ctx.guild:
         await ctx.send(f"You can only send public game-changing commands (draw, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
         return
@@ -222,31 +319,32 @@ async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: s
         return
 
     print(f"Scrying {num_cards} cards for {ctx.author} in game {game.id}")
-    scryed_cards = game.deck.peek(num_cards)
+    peeked_cards = game.deck.peek(num_cards)
     
     # TODO: where do I get card pictures from?
-    numbered_cards = [f"`{i + 1}. {scryed_cards[i]}`" for i in range(len(scryed_cards))]
+    numbered_cards = [f"`{i + 1}. {peeked_cards[i]}`" for i in range(len(peeked_cards))]
     cards_display = '\n'.join(numbered_cards)
-    content = f"You scryed these {num_cards} cards:\n{cards_display}\n"
+    content = f"You {action_word}ed these {num_cards} cards:\n{cards_display}\n"
     await ctx.author.send(content)
 
-    input_directions = ''
+    input_directions = 'Respond to me with a `!reorder` command with the re-ordered card numbers, separated by spaces'
     if follow_up_action == "reorder:scry":
         input_directions = ", grouped by top/bottom as a prefixing word.\n\nFor example, for a `!scry 3` you might write: `!reorder top 1 2 bottom 3`."
     elif follow_up_action == "reorder:rearrange":
         input_directions = ".\n\nFor example, for a `!rearrange 3` you might write: `!reorder 3 1 2`."
 
-    await ctx.author.send(f"Respond to me with a `!reorder` command with the re-ordered card numbers, separated by spaces {input_directions}")
+    if follow_up_action:
+        await ctx.author.send(f"{input_directions}")
+        game.waiting_for_response_from = MemberInfo(ctx.author.id, ctx.author.display_name, ctx.author.mention)
+        game.waiting_for_response_action = follow_up_action
+        game.waiting_for_response_number = num_cards
 
-    game.waiting_for_response_from = MemberInfo(ctx.author.id, ctx.author.display_name, ctx.author.mention)
-    game.waiting_for_response_action = follow_up_action
-    game.waiting_for_response_number = num_cards
-    save_game_state(RUNNING_GAMES)
+        save_game_state(RUNNING_GAMES)
 
     # if this was run outside the game channel, notify the game channel it happened
     game_channel = ctx.guild.get_channel(game.text_channel)
     if game_channel != ctx.channel:
-        await game_channel.send(f"{ctx.author.mention} scryed {num_cards} cards")
+        await game_channel.send(f"{ctx.author.mention} peeked at {num_cards} cards")
 
 
 @bot.command()
@@ -271,6 +369,14 @@ async def rearrange(ctx: Context, num_cards_str: str):
     In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
     """
     await peek_for_reorder(ctx, num_cards_str, "reorder:rearrange")
+
+
+@bot.command()
+async def peek(ctx: Context, num_card_str: str):
+    """
+    Peek at the top cards of the deck. The cards you see will be sent to you in a DM.
+    """
+    await peek_for_reorder(ctx, num_card_str)
 
 
 @bot.command()
@@ -398,6 +504,68 @@ async def play(ctx: Context, *card_words):
 
 
 @bot.command()
+async def discard(ctx: Context, *card_words):
+    """
+    Discard a specific from your hand into the graveyard
+    """
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, scry, rearrange, flashback, buyback, play, discard, mill) in the server where you're playing the game")
+        return
+
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    card_name = ' '.join(card_words)
+
+    actual_card_name = ''
+    try:
+        actual_card_name = game.deck.discard(card_name, member_id=ctx.author.id)
+    except ValueError as e:
+        await ctx.send(e)
+        return
+    
+    print(f"Discarding {actual_card_name} in game {game.id}")
+    game.graveyard.insert(actual_card_name)
+    save_game_state(RUNNING_GAMES)
+
+    # notify the game channel this happened
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"{ctx.author.mention} discarded {actual_card_name}")
+
+
+@bot.command()
+async def discardall(ctx: Context):
+    """
+    Discard all cards from your hand into the graveyard
+    """
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, scry, rearrange, flashback, buyback, play, discard, mill) in the server where you're playing the game")
+        return
+
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    print(f"Discarding hand of {ctx.author.mention} in game {game.id}")    
+    discarded_cards = []
+    hand = deepcopy(game.deck.get_hand(ctx.author.id))
+    print(f"Hand: {hand}")
+    for card_name in hand:
+        actual_card_name = game.deck.discard(card_name, member_id=ctx.author.id)
+        game.graveyard.insert(actual_card_name)
+        discarded_cards.append(card_name)
+
+    save_game_state(RUNNING_GAMES)
+
+    # notify the game channel this happened
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"{ctx.author.mention} discarded {', '.join(discarded_cards)}")
+
+
+@bot.command()
 async def buyback(ctx: Context, *card_words):
     """
     Buy back a card, keeping it from the graveyard and leaving it playable.
@@ -467,6 +635,35 @@ async def flashback(ctx: Context, *card_words):
 
 
 @bot.command()
+async def mill(ctx: Context, num_cards: str):
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    try:
+        num_cards_int = int(num_cards)
+    except:
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards}")
+        return
+
+    milled_cards, was_owd_milled = game.deck.mill(num_cards_int)
+    game.graveyard.cards.extend(milled_cards)
+
+    save_game_state(RUNNING_GAMES)
+    
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    if was_owd_milled:
+        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards, including a One with Death! The deck was shuffled because the One with Deaths were shuffled back in after being milled.")
+    else:
+        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards")
+
+
+def escape(ctx: Context, *card_words):
+    pass
+
+
+@bot.command()
 async def shuffle(ctx: Context):
     game = find_game_by_member_id(ctx.author.id)
     if not game:
@@ -483,6 +680,34 @@ async def shuffle(ctx: Context):
 
 @bot.command()
 async def resolve(ctx: Context, *card_words):
+    """
+    Resolve a card from the game's resolution stack (e.g. One with Death)
+
+    The resolved card gets sent to the graveyard
+    """
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    card_name = ' '.join(card_words)
+
+    actual_card_name = ''
+    try:
+        actual_card_name = game.deck.resolve(card_name)
+    except ValueError:
+        await ctx.send(f"{card_name} is not in the resolution stack")
+    
+    if actual_card_name != "One with Death":
+        game.grave.insert(actual_card_name)
+
+    save_game_state(RUNNING_GAMES)
+    
+    await ctx.send(f"Resolved a copy of {actual_card_name}. The resolution stack is now: {game.deck._waiting_to_resolve}")
+
+
+@bot.command()
+async def resolvetop(ctx: Context, *card_words):
     game = find_game_by_member_id(ctx.author.id)
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
@@ -491,7 +716,7 @@ async def resolve(ctx: Context, *card_words):
     card_name = ' '.join(card_words)
 
     try:
-        actual_card_name = game.deck.resolve(card_name)
+        actual_card_name = game.deck.resolve(card_name, resolve_to_top=True)
     except ValueError:
         await ctx.send(f"{card_name} is not in the resolution stack")
     
@@ -501,19 +726,43 @@ async def resolve(ctx: Context, *card_words):
 
 
 @bot.command()
-async def hand(ctx: Context):
+async def hand(ctx: Context, show_to: str=None):
+    """
+    Get a view of your current Deck of Death hand, or show it to someone else.
+
+    If no argument is provided, the hand is sent in a DM to you. If you want to show someone else, give their name as an argument.
+    """
     game = find_game_by_member_id(ctx.author.id)
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
         return
     
+    recipient = ctx.author
+    if show_to:
+        if not ctx.guild:
+            await ctx.send(f"To show someone else your hand, you must post the `!hand <member>` ")
+            return
+        enriched_members = [ctx.guild.get_member(m.id) for m in game.members]
+        found_members = [m for m in enriched_members if m.name.lower() == show_to.lower() or m.display_name.lower() == show_to.lower()]
+        if not found_members:
+            await ctx.send(f"I couldn't find {show_to} to show the hand to")
+            return
+        else:
+            recipient = found_members[0]
+
     hand = game.deck.get_hand(member_id=ctx.author.id)
     if hand:
         hand_str = '\n'.join(hand)
         # TODO: include images?
-        await ctx.author.send(f"The cards in your hand are:\n```\n{hand_str}\n```")
+        if recipient.id == ctx.author.id:
+            await recipient.send(f"The cards in your hand are:\n```\n{hand_str}\n```")
+        else:
+            await recipient.send(f"The cards in {ctx.author.display_name}'s hand are:\n```\n{hand_str}\n```")
     else:
-        await ctx.author.send(f"Your hand is empty!")
+        if recipient.id == ctx.author.id:
+            await recipient.send(f"Your hand is empty!")
+        else:
+            await recipient.send(f"{ctx.author.display_name}'s hand is empty!")
 
 
 @bot.command()
@@ -554,7 +803,7 @@ async def exile(ctx: Context):
         content += "\n```"
         await ctx.send(content)
     else:
-        await ctx.send("The graveyard for the Deck of Death is empty")
+        await ctx.send("The exile pile for the Deck of Death is empty")
 
 
 @bot.command()
@@ -599,11 +848,14 @@ async def rules(ctx: Context):
     Examples:
     !rules
     """
-    ctx.send("These still need to be defined :)")
+    await ctx.send("These still need to be defined :)")
 
 
 @bot.event
 async def on_command_error(ctx: Context, e: commands.errors.CommandError):
+    print_exception(
+        type(e), e, e.__traceback__, file=sys.stderr
+    )
     print(f"Author: {ctx.author.name}, Command: {ctx.command}, Error: {e}")
 
     if isinstance(e, commands.errors.MissingRequiredArgument):

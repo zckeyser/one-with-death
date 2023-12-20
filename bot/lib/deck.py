@@ -102,6 +102,17 @@ class Deck():
         print(f"Re-ordered {len(new_top_card_indexes)} cards as a rearrange re-order")
 
 
+    def discard(self, card: str, member_id: int) -> str:
+        member_id_str = str(member_id)
+
+        card_indexes = [i for i, c in enumerate(self._hands.get(member_id_str, {})) if sanitize_card_name(c) == sanitize_card_name(card)]
+
+        if not card_indexes:
+            raise ValueError(f"Card {card} is not in your Deck of Death hand")
+
+        return self._hands[member_id_str].pop(card_indexes[0])
+
+
     def play(self, card: str, member_id: int) -> str:
         # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
         member_id_str = str(member_id)
@@ -118,7 +129,7 @@ class Deck():
         return card_to_return
 
 
-    def resolve(self, card: str) -> str:
+    def resolve(self, card: str, resolve_to_top: bool=False) -> str:
         card_indexes = [i for i, c in enumerate(self._waiting_to_resolve) if sanitize_card_name(c) == sanitize_card_name(card)]
 
         if not card_indexes:
@@ -126,8 +137,10 @@ class Deck():
 
         resolved_card = self._waiting_to_resolve.pop(card_indexes[0])
         if resolved_card == 'One with Death':
-            self.cards.append(resolved_card)
-            self.shuffle()
+            self.cards = [resolved_card, *self.cards]
+
+            if not resolve_to_top:
+                self.shuffle()
 
         return resolved_card
     
@@ -163,7 +176,6 @@ class Deck():
         else:
             return []
 
-
     def add_card_to_hand(self, member_id: int, card_name: str):
         # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
         member_id_str = str(member_id)
@@ -171,6 +183,32 @@ class Deck():
             self._hands[member_id_str].append(card_name)
         else:
             self._hands[member_id_str] = [card_name]
+
+
+    def add_to_deck(self, card_name: str):
+        self.cards.append(card_name)
+
+
+    def mill(self, num_cards: int) -> [list[str], bool]:
+        """
+        Pull cards out of the deck without them going into a hand, to be put into the graveyard.
+
+        Includes a boolean flag to say whether a OWD card was milled
+        """
+        num_cards = min(len(self.cards), num_cards)
+        milled_cards = self.cards[:num_cards]
+        self.cards = self.cards[num_cards:]
+
+        if 'One with Death' in milled_cards:
+            owd_cards = [c for c in milled_cards if c == 'One with Death']
+            non_owd_cards = [c for c in milled_cards if c != 'One with Death']
+
+            self.cards.extend(owd_cards)
+            self.shuffle()
+
+            return non_owd_cards, True
+        else:
+            return milled_cards, False
 
 
     @classmethod
