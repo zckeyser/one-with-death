@@ -135,7 +135,7 @@ The main important commands are:
 `!help` - See a full list of available commands, or get more detailed help for a command (e.g. !help scry)
 
 You start with a Nix card automatically!"""
-        await member.send(content)
+        await member.send(content, file=disnake.File(get_image_file_location("Nix")))
 
 
 @bot.command()
@@ -149,10 +149,12 @@ async def endgame(ctx: Context, game_id: Optional[str]=None):
 
     # TODO: allow admins to manually specify game id, but only admins
     if not game_id:
-        game_id = find_game_by_member_id(ctx.author.id).id
-        if not game_id:
-            # TODO: better error message
+        game = find_game_by_member_id(ctx.author.id)
+        if not game:
             await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+            return
+        else:
+            game_id = game.id
 
     game_index_list = [i for i, g in enumerate(RUNNING_GAMES) if g.id == game_id]
 
