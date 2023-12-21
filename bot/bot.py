@@ -942,6 +942,22 @@ async def decksize(ctx: Context):
 
 
 @bot.command()
+async def card(ctx: Context, *card_words):
+    card_image: disnake.File = None
+    try:
+        card_name = ' '.join(card_words)
+        card_image = disnake.File(get_image_file_location(card_name))
+    except ImageNotFoundError:
+        await ctx.send(f"Sorry, I couldn't find an image for {card_name}")
+        return
+    except Exception as e:
+        await ctx.send(f"Sorry, I ran into an unexpected error while loading the image for {card_name}")
+        return
+
+    await ctx.send(file=card_image)
+
+
+@bot.command()
 async def rules(ctx: Context):
     """
     Get the rules for One with Death
@@ -950,6 +966,9 @@ async def rules(ctx: Context):
     !rules
     """
     await ctx.send("These still need to be defined :)")
+
+
+
 
 
 @bot.event
