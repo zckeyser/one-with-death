@@ -45,6 +45,21 @@ class Graveyard():
         return self.cards.pop(card_in_grave_index)
 
 
+    def pull_card_by_name(self, card_name: str) -> str:
+        card_in_grave_index = find_card_index(card_name, self.cards)
+        if card_in_grave_index < 0:
+            raise CardNotFoundError(f"Card {card_name} cannot be pulled because it is not in the graveyard")
+        
+        return self.cards.pop(card_in_grave_index)
+
+
+    def pull_card_by_index(self, card_index: int) -> str:
+        if card_index < 0 or card_index > len(self.cards):
+            raise IndexError()
+        
+        return self.cards.pop(card_index)
+
+
     def get_recurrable_cards(self) -> list[str]:
         """
         Get a list of cards currently in the graveyard with a recurrence effect.
@@ -52,3 +67,6 @@ class Graveyard():
         flashback_cards = get_card_list("flashback")
 
         return [c for c in self.cards if c in flashback_cards]
+
+    def __len__(self) -> int:
+        return len(self.cards)

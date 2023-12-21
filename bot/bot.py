@@ -189,7 +189,7 @@ async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, 
 
 
 @bot.command()
-async def draw(ctx: Context, num_cards_str: str="1"):
+async def draw(ctx: Context, num_cards: str="1"):
     """
     Draw cards from the Deck of Death.
 
@@ -207,16 +207,16 @@ async def draw(ctx: Context, num_cards_str: str="1"):
         return
     
     try:
-        num_cards = int(num_cards_str)
+        num_cards = int(num_cards)
     except:
-        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards}")
         return
 
     await handle_draw(ctx, game, ctx.author, num_cards)
 
 
 @bot.command()
-async def drawall(ctx: Context, num_cards_str: str="1"):
+async def drawall(ctx: Context, num_cards: str="1"):
     """
     Draw cards from the Deck of Death for all players.
 
@@ -234,9 +234,9 @@ async def drawall(ctx: Context, num_cards_str: str="1"):
         return
     
     try:
-        num_cards = int(num_cards_str)
+        num_cards = int(num_cards)
     except:
-        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards}")
         return
     
     for member in game.members:
@@ -244,7 +244,7 @@ async def drawall(ctx: Context, num_cards_str: str="1"):
 
 
 @bot.command()
-async def drawother(ctx: Context, num_cards_str: str="1"):
+async def drawother(ctx: Context, num_cards: str="1"):
     """
     Draw cards from the Deck of Death for all players except the command submitter.
 
@@ -262,9 +262,9 @@ async def drawother(ctx: Context, num_cards_str: str="1"):
         return
     
     try:
-        num_cards = int(num_cards_str)
+        num_cards = int(num_cards)
     except:
-        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards}")
         return
     
     for member in game.members:
@@ -278,8 +278,27 @@ async def drawother(ctx: Context, num_cards_str: str="1"):
 async def redrawexile(ctx: Context):
     """
     Exile your entire hand, then re-draw it
-    """
-    pass
+    """    
+    if not ctx.guild:
+        await ctx.send(f"You can only send public game-changing commands (draw, drawall, drawother, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
+        return
+    
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+    
+    # discard hand, toss the discarded cards into the exile list, then re-draw
+    exiled_hand = game.deck.discard_hand(ctx.author.id)
+    num_cards = len(exiled_hand)
+    
+    game.exile.extend(exiled_hand)
+    
+    await handle_draw(ctx, game, num_cards)
+    save_game_state(RUNNING_GAMES)
+
+    await ctx.send(f"{ctx.author.mention} exiled and re-drew {num_cards} cards")
+
 
 @bot.command()
 async def redrawall(ctx: Context):
@@ -295,10 +314,22 @@ async def redrawall(ctx: Context):
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
         return
 
+    member_num_cards: dict[int, int] = {}
+
+    for member in game.members:
+        discarded_cards = game.deck.discard_hand(member.id)
+        game.deck.add_to_deck(*discarded_cards)
+        member_num_cards[member.id] = len(discarded_cards)
+    
+    for member in game.members:
+        await handle_draw(member.id, member_num_cards[member.id])
+    
+    
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"{ctx.author.mention} triggered a re-draw for all players")
 
 
-
-async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: Optional[str]=None, action_word="peek"):
+async def peek_for_reorder(ctx: Context, num_cards: str, follow_up_action: Optional[str]=None, action_word="peek"):
     if not ctx.guild:
         await ctx.send(f"You can only send public game-changing commands (draw, scry, rearrange, flashback, buyback, play) in the server where you're playing the game")
         return
@@ -313,9 +344,9 @@ async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: O
         return
 
     try:
-        num_cards = int(num_cards_str)
+        num_cards = int(num_cards)
     except:
-        await ctx.send(f"Received invalid non-number argument for draw: {num_cards_str}")
+        await ctx.send(f"Received invalid non-number argument for draw: {num_cards}")
         return
 
     print(f"Scrying {num_cards} cards for {ctx.author} in game {game.id}")
@@ -348,7 +379,7 @@ async def peek_for_reorder(ctx: Context, num_cards_str: str, follow_up_action: O
 
 
 @bot.command()
-async def scry(ctx: Context, num_cards_str: str):
+async def scry(ctx: Context, num_cards: str):
     """
     Peek at the top cards of the Deck of Death, then gain the ability to re-arrange those cards as desired on the top and bottom of the deck.
 
@@ -356,11 +387,11 @@ async def scry(ctx: Context, num_cards_str: str):
     A !reorder for a scry is in the format: !reorder top 1 2 bottom 3
     In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
     """
-    await peek_for_reorder(ctx, num_cards_str, "reorder:scry")
+    await peek_for_reorder(ctx, num_cards, "reorder:scry")
 
 
 @bot.command()
-async def rearrange(ctx: Context, num_cards_str: str):
+async def rearrange(ctx: Context, num_cards: str):
     """
     Peek at the top cards of the Deck of Death, then gain the ability to re-arrange those cards as desired on the top and bottom of the deck.
 
@@ -368,15 +399,15 @@ async def rearrange(ctx: Context, num_cards_str: str):
     A !reorder for a rearrange is in the format: !reorder 3 1 2 
     In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
     """
-    await peek_for_reorder(ctx, num_cards_str, "reorder:rearrange")
+    await peek_for_reorder(ctx, num_cards, "reorder:rearrange")
 
 
 @bot.command()
-async def peek(ctx: Context, num_card_str: str):
+async def peek(ctx: Context, num_cards: str):
     """
     Peek at the top cards of the deck. The cards you see will be sent to you in a DM.
     """
-    await peek_for_reorder(ctx, num_card_str)
+    await peek_for_reorder(ctx, num_cards)
 
 
 @bot.command()
@@ -703,7 +734,8 @@ async def resolve(ctx: Context, *card_words):
 
     save_game_state(RUNNING_GAMES)
     
-    await ctx.send(f"Resolved a copy of {actual_card_name}. The resolution stack is now: {game.deck._waiting_to_resolve}")
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"Resolved a copy of {actual_card_name}. The resolution stack is now: {game.deck._waiting_to_resolve}")
 
 
 @bot.command()
@@ -722,7 +754,57 @@ async def resolvetop(ctx: Context, *card_words):
     
     save_game_state(RUNNING_GAMES)
     
-    await ctx.send(f"Resolved a copy of {actual_card_name}. The resolution stack is now: {game.deck._waiting_to_resolve}")
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"Resolved a copy of {actual_card_name}. The resolution stack is now: {game.deck._waiting_to_resolve}")
+
+
+@bot.command()
+async def pull_from_grave(ctx: Context, *card_words):
+    """
+    Pull a specific card out of the graveyard into your hand
+
+    Examples:
+    !pull_from_grave angels grace
+    """
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    card_name = ' '.join(card_words)
+    actual_card_name = game.graveyard.pull_card_by_name(card_name)
+    game.deck.add_card_to_hand(ctx.author.id, actual_card_name)
+    save_game_state(RUNNING_GAMES)
+
+    
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"{ctx.author.mention} pulled {actual_card_name} from the grave")
+
+
+@bot.command()
+async def exilegrave(ctx: Context, *card_indexes):
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    card_index_list = [int(card_index) for card_index in card_indexes]
+
+    out_of_bounds_indexes = [i for i in card_index_list if i > len(game.graveyard) or i < 1]
+    if any(out_of_bounds_indexes):
+        await ctx.send(f"That `!exilegrave` command was invalid, because some indexes were out of bounds. An index for the graveyard should be no less than 1 and no more than the size of the graveyard ({len(graveyard)}). The offending indexes were: {', '.join(out_of_bounds_indexes)}")
+        return
+
+    cards_exiled = []
+
+    for card_index in card_index_list:
+        card_name = game.graveyard.pull_card_by_index(card_index - 1)
+        game.exile.append(card_name)
+        cards_exiled.append(card_name)
+
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    cards_str = '\n'.join(cards_exiled)
+    await game_channel.send(f"{ctx.author.mention} exiled these cards from the graveyard:\n```\n{cards_str}\n```")
 
 
 @bot.command()

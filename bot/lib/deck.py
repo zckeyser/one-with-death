@@ -176,6 +176,7 @@ class Deck():
         else:
             return []
 
+
     def add_card_to_hand(self, member_id: int, card_name: str):
         # because when this goes into and out of JSON the keys become strings, this makes it easier to keep consistent state
         member_id_str = str(member_id)
@@ -185,8 +186,8 @@ class Deck():
             self._hands[member_id_str] = [card_name]
 
 
-    def add_to_deck(self, card_name: str):
-        self.cards.append(card_name)
+    def add_to_deck(self, *card_names: list[str]):
+        self.cards.extend(card_names)
 
 
     def mill(self, num_cards: int) -> [list[str], bool]:
@@ -210,6 +211,15 @@ class Deck():
         else:
             return milled_cards, False
 
+
+    def discard_hand(self, member_id: int) -> list[str]:
+        member_id_str = str(member_id)
+        if member_id_str in self._hands:
+            hand = self._hands[member_id_str]
+            self._hands[member_id_str] = []
+            return hand
+        else:
+            return []
 
     @classmethod
     def from_file(cls, decklist_file: str, member_ids: list[int]=None, shuffle: bool=True):
@@ -242,3 +252,6 @@ class Deck():
             deck.add_card_to_hand(member_id=member_id, card_name="Nix")
 
         return deck
+
+    def __len__(self) -> int:
+        return len(self.cards)
