@@ -9,3 +9,6 @@ class CardMissingBuybackError(Exception):
 
 class InvalidBuybackError(Exception):
     pass
+
+class ImageNotFoundError(Exception):
+    pass

@@ -13,8 +13,10 @@ from disnake.utils import find
 
 
 from constants import DECKLIST_FILE, MAX_AUX_HAND_SIZE
-from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError
+from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError, ImageNotFoundError
+from lib.card_image import get_image_file_location
 from lib.deck import Deck
+from lib.formatting import format_card_list
 from lib.game_state import load_game_state, save_game_state
 from models import MemberInfo, OneWithDeathGame
 
@@ -171,9 +173,24 @@ async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, 
     save_game_state(RUNNING_GAMES)
     
     # TODO: include card picture as attachment once I get them from danny
-    drawn_cards_display = '\n'.join(drawn_cards)
-    content = f"You drew {'these' if num_cards > 1 else 'this'} {num_cards} card{'s' if num_cards > 1 else ''}: ```\n{drawn_cards_display}\n```"
-    await member.send(content)
+    drawn_cards_display = format_card_list(drawn_cards)
+    content = f"You drew {'these' if num_cards > 1 else 'this'} {num_cards} card{'s' if num_cards > 1 else ''}: {drawn_cards_display}"
+    failed_to_load_images = False
+
+    card_images = []
+    try:
+        card_images = [disnake.File(get_image_file_location(card_name)) for card_name in drawn_cards]
+    except Exception as e:
+        print(f"Failed to load card images for card list: {drawn_cards}")
+        print_exception(
+            type(e), e, e.__traceback__, file=sys.stderr
+        )
+        failed_to_load_images = True
+        # intentionally eat the error so we still at least send the drawn cards
+
+    await member.send(content, files=card_images)
+    if failed_to_load_images:
+        await member.send("Sorry, I had some trouble loading the images for this draw.")
 
     game_channel = ctx.guild.get_channel(game.text_channel)
     if game_channel != ctx.channel:
