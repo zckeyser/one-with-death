@@ -11,7 +11,6 @@ from disnake.member import Member
 from disnake.user import User
 from disnake.utils import find
 
-
 from constants import DECKLIST_FILE, MAX_AUX_HAND_SIZE
 from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError, ImageNotFoundError
 from lib.card_image import get_image_file_location
@@ -199,8 +198,8 @@ async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, 
         await game_channel.send(f"{member.mention} drew {num_cards} cards")
 
     if any([True for c in drawn_cards if c == 'One with Death']):
-        # TODO: Include OWD image here?
-        await game_channel.send(f"{member.mention} drew One with Death!")
+        card_image = disnake.File(get_image_file_location("One with Death"))
+        await game_channel.send(f"{member.mention} drew One with Death!", file=card_image)
 
     hand = game.deck.get_hand(member.id)
     if len(hand) > MAX_AUX_HAND_SIZE:
@@ -549,8 +548,14 @@ async def play(ctx: Context, *card_words):
     save_game_state(RUNNING_GAMES)
 
     # notify the game channel this happened
+    card_image = None
+    try:
+        card_image = disnake.File(get_image_file_location(actual_card_name))
+    except ImageNotFoundError:
+        print(f"Error retrieving image for {actual_card_name}")
+
     game_channel = ctx.guild.get_channel(game.text_channel)
-    await game_channel.send(f"{ctx.author.mention} played {actual_card_name}")
+    await game_channel.send(f"{ctx.author.mention} played {actual_card_name}", file=card_image)
 
 
 @bot.command()
@@ -669,7 +674,7 @@ async def flashback(ctx: Context, *card_words):
     card_name = ' '.join(card_words)
 
     try:
-        actual_card = game.graveyard.flashback(card_name)
+        actual_card_name = game.graveyard.flashback(card_name)
     except CardNotFoundError:
         await ctx.send(f"The card {card_name} was not found in the graveyard")
         return
@@ -677,11 +682,18 @@ async def flashback(ctx: Context, *card_words):
         await ctx.send(f"The card {card_name} does not have flashback")
         return
 
-    game.exile.append(actual_card)
+    game.exile.append(actual_card_name)
     save_game_state(RUNNING_GAMES)
 
     game_channel = ctx.guild.get_channel(game.text_channel)
-    await game_channel.send(f"{actual_card} has been flashbacked by {ctx.author.mention} and is now exiled")
+
+    card_image = None
+    try:
+        card_image = disnake.File(get_image_file_location(actual_card_name))
+    except ImageNotFoundError:
+        print(f"Error retrieving image for {actual_card_name}")
+
+    await game_channel.send(f"{actual_card_name} has been flashbacked by {ctx.author.mention} and is now exiled", file=card_image)
 
 
 @bot.command()
@@ -853,12 +865,17 @@ async def hand(ctx: Context, show_to: str=None):
 
     hand = game.deck.get_hand(member_id=ctx.author.id)
     if hand:
-        hand_str = '\n'.join(hand)
-        # TODO: include images?
+        card_images = []
+        for card in hand:
+            try:
+                card_images.append(disnake.File(get_image_file_location(card)))
+            except ImageNotFoundError:
+                print(f"Failed to retrieve image for {card}")
+
         if recipient.id == ctx.author.id:
-            await recipient.send(f"The cards in your hand are:\n```\n{hand_str}\n```")
+            await recipient.send(f"The cards in your hand are:\n{format_card_list(hand)}", files=card_images)
         else:
-            await recipient.send(f"The cards in {ctx.author.display_name}'s hand are:\n```\n{hand_str}\n```")
+            await recipient.send(f"The cards in {ctx.author.display_name}'s hand are:\n{format_card_list(hand)}", files=card_images)
     else:
         if recipient.id == ctx.author.id:
             await recipient.send(f"Your hand is empty!")
