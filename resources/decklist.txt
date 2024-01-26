@@ -1,4 +1,4 @@
-11 One with Death
+13 One with Death
 1 Angel's Grace
 1 Arcane Infusion
 1 Archmage's Charm
@@ -58,7 +58,6 @@
 1 Sapphire Dragon // Psionic Pulse
 1 Scour All Possibilities
 1 Serum Visions
-1 Soldier of Fortune
 1 Soothsaying
 1 Spell Burst
 1 Spell Crumple
