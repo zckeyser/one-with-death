@@ -13,7 +13,7 @@ from disnake.utils import find
 
 from constants import DECKLIST_FILE, MAX_AUX_HAND_SIZE
 from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError, ImageNotFoundError
-from lib.card_image import get_image_file_location
+from lib.card_image import get_image_file_location, get_card_images
 from lib.deck import Deck
 from lib.formatting import format_card_list
 from lib.game_state import load_game_state, save_game_state
@@ -167,6 +167,9 @@ async def endgame(ctx: Context, game_id: Optional[str]=None):
 
         await ctx.guild.get_channel(game.text_channel).delete()
         await ctx.guild.get_channel(game.voice_channel).delete()
+        
+        for member in game.members:
+            await ctx.guild.get_member(member.id).send(f"The game {game.id} has ended!")
 
 
 async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, Member], num_cards: int):
@@ -197,9 +200,11 @@ async def handle_draw(ctx: Context, game: OneWithDeathGame, member: Union[User, 
     if game_channel != ctx.channel:
         await game_channel.send(f"{member.mention} drew {num_cards} cards")
 
-    if any([True for c in drawn_cards if c == 'One with Death']):
+    drawn_owds = [True for c in drawn_cards if c == 'One with Death']
+    if any(drawn_owds):
         card_image = disnake.File(get_image_file_location("One with Death"))
-        await game_channel.send(f"{member.mention} drew One with Death!", file=card_image)
+        await game_channel.send(f"{member.mention} drew {len(drawn_owds)} One with Death card{'s' if len(drawn_owds) > 1 else ''}!", file=card_image)
+        await member.send(f"You got {'{}'.format(len(drawn_owds)) if len(drawn_owds) > 1 else 'a'} Charon's Obol{'s' if len(drawn_owds) > 1 else ''}!", file=disnake.File(get_image_file_location("Charon's Obol"))) 
 
     hand = game.deck.get_hand(member.id)
     if len(hand) > MAX_AUX_HAND_SIZE:
@@ -338,10 +343,11 @@ async def redrawall(ctx: Context):
         discarded_cards = game.deck.discard_hand(member.id)
         game.deck.add_to_deck(*discarded_cards)
         member_num_cards[member.id] = len(discarded_cards)
+
+    game.deck.shuffle()
     
     for member in game.members:
-        await handle_draw(member.id, member_num_cards[member.id])
-    
+        await handle_draw(ctx, game, ctx.guild.get_member(member.id), member_num_cards[member.id])
     
     game_channel = ctx.guild.get_channel(game.text_channel)
     await game_channel.send(f"{ctx.author.mention} triggered a re-draw for all players")
@@ -373,8 +379,17 @@ async def peek_for_reorder(ctx: Context, num_cards: str, follow_up_action: Optio
     # TODO: where do I get card pictures from?
     numbered_cards = [f"`{i + 1}. {peeked_cards[i]}`" for i in range(len(peeked_cards))]
     cards_display = '\n'.join(numbered_cards)
+
+    card_images = []
+    for card in peeked_cards:
+        try:
+            card_image = disnake.File(get_image_file_location(card))
+            card_images.append(card_image)
+        except ImageNotFoundError:
+            print(f"Error retrieving image for {card}")
+
     content = f"You {action_word}ed these {num_cards} cards:\n{cards_display}\n"
-    await ctx.author.send(content)
+    await ctx.author.send(content, files=card_images)
 
     input_directions = 'Respond to me with a `!reorder` command with the re-ordered card numbers, separated by spaces'
     if follow_up_action == "reorder:scry":
@@ -392,6 +407,7 @@ async def peek_for_reorder(ctx: Context, num_cards: str, follow_up_action: Optio
 
     # if this was run outside the game channel, notify the game channel it happened
     game_channel = ctx.guild.get_channel(game.text_channel)
+    
     if game_channel != ctx.channel:
         await game_channel.send(f"{ctx.author.mention} peeked at {num_cards} cards")
 
@@ -586,8 +602,14 @@ async def discard(ctx: Context, *card_words):
     save_game_state(RUNNING_GAMES)
 
     # notify the game channel this happened
+    card_image = None
+    try:
+        card_image = disnake.File(get_image_file_location(actual_card_name))
+    except ImageNotFoundError:
+        print(f"Error retrieving image for {actual_card_name}")
+
     game_channel = ctx.guild.get_channel(game.text_channel)
-    await game_channel.send(f"{ctx.author.mention} discarded {actual_card_name}")
+    await game_channel.send(f"{ctx.author.mention} discarded {actual_card_name}", file=card_image)
 
 
 @bot.command()
@@ -712,13 +734,15 @@ async def mill(ctx: Context, num_cards: str):
     milled_cards, was_owd_milled = game.deck.mill(num_cards_int)
     game.graveyard.cards.extend(milled_cards)
 
+    card_images = get_card_images(milled_cards)
+
     save_game_state(RUNNING_GAMES)
     
     game_channel = ctx.guild.get_channel(game.text_channel)
     if was_owd_milled:
-        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards, including a One with Death! The deck was shuffled because the One with Deaths were shuffled back in after being milled.")
+        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards, including a One with Death! The deck was shuffled because the One with Deaths were shuffled back in after being milled.", files=card_images)
     else:
-        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards")
+        await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards", files=card_images)
 
 
 def escape(ctx: Context, *card_words):
@@ -770,6 +794,25 @@ async def resolve(ctx: Context, *card_words):
 
 
 @bot.command()
+async def stack(ctx: Context, *card_words):
+    """
+    View the current resolution stack
+    """
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    save_game_state(RUNNING_GAMES)
+    
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    if game.deck._waiting_to_resolve:
+        card_images = get_card_images(game.deck._waiting_to_resolve)
+        await game_channel.send(f"The resolution stack is: {format_card_list(game.deck._waiting_to_resolve)}", files=card_images)
+    else:
+        await game_channel.send(f"The resolution stack is empty!")    
+
+@bot.command()
 async def resolvetop(ctx: Context, *card_words):
     game = find_game_by_member_id(ctx.author.id)
     if not game:
@@ -790,12 +833,12 @@ async def resolvetop(ctx: Context, *card_words):
 
 
 @bot.command()
-async def pull_from_grave(ctx: Context, *card_words):
+async def pullfromgrave(ctx: Context, *card_words):
     """
     Pull a specific card out of the graveyard into your hand
 
     Examples:
-    !pull_from_grave angels grace
+    !pullfromgrave angels grace
     """
     game = find_game_by_member_id(ctx.author.id)
     if not game:
@@ -865,12 +908,7 @@ async def hand(ctx: Context, show_to: str=None):
 
     hand = game.deck.get_hand(member_id=ctx.author.id)
     if hand:
-        card_images = []
-        for card in hand:
-            try:
-                card_images.append(disnake.File(get_image_file_location(card)))
-            except ImageNotFoundError:
-                print(f"Failed to retrieve image for {card}")
+        card_images = get_card_images(hand)        
 
         if recipient.id == ctx.author.id:
             await recipient.send(f"The cards in your hand are:\n{format_card_list(hand)}", files=card_images)
