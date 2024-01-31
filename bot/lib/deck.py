@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from random import randint
+from typing import Optional
 
 from errors import InvalidBuybackError
 from lib.util import sanitize_card_name
@@ -130,12 +131,17 @@ class Deck():
 
 
     def resolve(self, card: str, resolve_to_top: bool=False) -> str:
-        card_indexes = [i for i, c in enumerate(self._waiting_to_resolve) if sanitize_card_name(c) == sanitize_card_name(card)]
+        index_to_pop = 0
+        # if the card name is empty, resolve the first card on the stack, otherwise find the card to resolve
+        if card:
+            card_indexes = [i for i, c in enumerate(self._waiting_to_resolve) if sanitize_card_name(c) == sanitize_card_name(card)]
 
-        if not card_indexes:
-            raise ValueError(f"Card {card} is not in the cards waiting to be resolved from this Deck of Death")
+            if not card_indexes:
+                raise ValueError(f"Card {card} is not in the cards waiting to be resolved from this Deck of Death")
 
-        resolved_card = self._waiting_to_resolve.pop(card_indexes[0])
+            index_to_pop = card_indexes[0]
+
+        resolved_card = self._waiting_to_resolve.pop(index_to_pop)
         if resolved_card == 'One with Death':
             self.cards = [resolved_card, *self.cards]
 

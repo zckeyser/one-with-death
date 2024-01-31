@@ -34,8 +34,8 @@ class OneWithDeathGame(SerializableDataclass):
     id: str
     members: list[MemberInfo]
     deck: Deck
-    text_channel: str
-    voice_channel: str
+    text_channel: int
+    voice_channel: int
 
     graveyard: Graveyard = field(default_factory=lambda: Graveyard())
     exile: list[str] = field(default_factory=lambda: [])
