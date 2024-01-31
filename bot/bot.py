@@ -1,3 +1,4 @@
+import random
 import sys
 from copy import deepcopy
 from traceback import print_exception
@@ -896,6 +897,34 @@ async def exilegrave(ctx: Context, *card_indexes):
     game_channel = ctx.guild.get_channel(game.text_channel)
     cards_str = '\n'.join(cards_exiled)
     await game_channel.send(f"{ctx.author.mention} exiled these cards from the graveyard:\n```\n{cards_str}\n```")
+
+
+@bot.command()
+async def exilegraverandom(ctx: Context, num_cards_to_exile):
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+
+    if not num_cards_to_exile.isdigit():
+        await ctx.send("Must provide a number of cards to exile to use the !exilegraverandom command")
+        return
+
+    if num_cards_to_exile > len(game.graveyard):
+        await ctx.send(f"You tried to exile {num_cards_to_exile} from the graveyard, but there are only {len(game.graveyard)} cards there. You cannot exile more cards from the grave than exist.") 
+        return
+
+    card_index_list = random.choices(range(len(game.graveyard)), k=int(num_cards_to_exile))
+
+    cards_exiled = []
+
+    for card_index in card_index_list:
+        card_name = game.graveyard.pull_card_by_index(card_index)
+        game.exile.append(card_name)
+        cards_exiled.append(card_name)
+
+    game_channel = ctx.guild.get_channel(game.text_channel)
+    await game_channel.send(f"{ctx.author.mention} exiled these cards from the graveyard: {format_card_list(cards_exiled)}")
 
 
 @bot.command()
