@@ -4,11 +4,12 @@ from random import randint
 from typing import Optional
 
 from errors import InvalidBuybackError
+from lib.card_group import CardGroup
 from lib.util import sanitize_card_name
 
 
 @dataclass
-class Deck():
+class Deck(CardGroup):
     cards: list[str]
     _hands: dict[str, list[str]] = field(default_factory=lambda: {})
     _drawn_cards: list[str] = field(default_factory=lambda: [])

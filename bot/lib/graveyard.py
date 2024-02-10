@@ -3,14 +3,12 @@ from functools import cache
 
 from errors import CardMissingBuybackError, CardMissingFlashbackError, CardNotFoundError
 from lib.card_lists import get_card_list
-from lib.util import find_card_index, sanitize_card_name
-
-
-
+from lib.card_group import CardGroup
+from lib.util import find_card_index
 
 
 @dataclass
-class Graveyard():
+class Graveyard(CardGroup):
     cards: list[str] = field(default_factory=lambda: list())
 
     def insert(self, card: str):
@@ -65,8 +63,10 @@ class Graveyard():
         Get a list of cards currently in the graveyard with a recurrence effect.
         """
         flashback_cards = get_card_list("flashback")
+        recur_cards = get_card_list("recur")
 
-        return [c for c in self.cards if c in flashback_cards]
+        return [c for c in self.cards if c in flashback_cards or c in recur_cards]
+
 
     def __len__(self) -> int:
         return len(self.cards)

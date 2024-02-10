@@ -16,7 +16,6 @@
 1 Deep Analysis
 1 Deliberate
 1 Diabolic Vision
-1 Discombobulate
 1 Disrupt
 1 Everybody Lives!
 1 Flame of Anor
@@ -51,11 +50,12 @@
 1 Overrule
 1 Overwhelming Denial
 1 Ponder
+1 Power Sink
 1 Predict
 1 Preordain
 1 Ray of Erasure
 1 Reverse the Polarity
-1 Sapphire Dragon // Psionic Pulse
+1 Sapphire Dragon
 1 Scour All Possibilities
 1 Serum Visions
 1 Soothsaying

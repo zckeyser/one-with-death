@@ -130,9 +130,9 @@ The main important commands are:
 
 `!play card_name` - Play a card which you've previously drawn from the Deck of Death
 
-`!scry num_cards` - Scry the given number of cards. This command must be followed up with the !reorder command in order to submit the new card order for your scryed cards.
+`!scry num_cards` - Scry the given number of cards. This command must be followed up with the !order command in order to submit the new card order for your scryed cards.
 
-`!reorder 1 2 3` - Re-order the cards from a recently run scry. The card numbers should be separated by a space.
+`!order 1 2 3` - Re-order the cards from a recently run scry. The card numbers should be separated by a space.
 
 `!help` - See a full list of available commands, or get more detailed help for a command (e.g. !help scry)
 
@@ -228,7 +228,7 @@ async def draw(ctx: Context, num_cards: str="1"):
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
         return
     
-    if not message_is_in_game_channel():
+    if not message_is_in_game_channel(ctx, game):
         await send_game_channel_warning_message(ctx, game)
         return
 
@@ -356,7 +356,7 @@ async def redrawall(ctx: Context):
     await game_channel.send(f"{ctx.author.mention} triggered a re-draw for all players")
 
 
-async def peek_for_reorder(ctx: Context, num_cards: str, follow_up_action: Optional[str]=None, action_word="peek"):
+async def peek_for_order(ctx: Context, num_cards: str, follow_up_action: Optional[str]=None, action_word="peek"):
     game = find_game_by_member_id(ctx.author.id)
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
@@ -424,19 +424,19 @@ async def scry(ctx: Context, num_cards: str):
     A !reorder for a scry is in the format: !reorder top 1 2 bottom 3
     In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
     """
-    await peek_for_reorder(ctx, num_cards, "reorder:scry")
+    await peek_for_order(ctx, num_cards, "reorder:scry")
 
 
 @bot.command()
-async def rearrange(ctx: Context, num_cards: str):
+async def fix(ctx: Context, num_cards: str):
     """
     Peek at the top cards of the Deck of Death, then gain the ability to re-arrange those cards as desired on the top and bottom of the deck.
 
     Must be followed by a !reorder command to re-order the scried cards.
-    A !reorder for a rearrange is in the format: !reorder 3 1 2 
+    A !reorder for a fix is in the format: !reorder 3 1 2 
     In which the numbers align from top->bottom for the card numbers specified in the message from the bot.
     """
-    await peek_for_reorder(ctx, num_cards, "reorder:rearrange")
+    await peek_for_order(ctx, num_cards, "reorder:rearrange")
 
 
 @bot.command()
@@ -444,11 +444,11 @@ async def peek(ctx: Context, num_cards: str):
     """
     Peek at the top cards of the deck. The cards you see will be sent to you in a DM.
     """
-    await peek_for_reorder(ctx, num_cards)
+    await peek_for_order(ctx, num_cards)
 
 
 @bot.command()
-async def reorder(ctx: Context, *new_card_indexes):
+async def order(ctx: Context, *new_card_indexes):
     """
     Can only be used after a scry command was just run by the same player.
     Give the command the cards you're re-ordering in the order that you want them, separated by semicolons (;).
@@ -456,9 +456,9 @@ async def reorder(ctx: Context, *new_card_indexes):
 
     Examples:
     
-    For a scry                     -> !reorder top 1 2 bottom 3
-    For a scry where all go on top -> !reorder top 1 2
-    For a rearrange                -> !reorder 1 2 3
+    For a scry                     -> !order top 1 2 bottom 3
+    For a scry where all go on top -> !order top 1 2
+    For a rearrange                -> !order 1 2 3
     """
     game = find_game_by_member_id(ctx.author.id)
     if not game:
@@ -470,7 +470,7 @@ async def reorder(ctx: Context, *new_card_indexes):
         return
 
     if game.waiting_for_response_action not in ["reorder:scry", "reorder:rearrange"]:
-        await ctx.send(f"I'm currently waiting to resolve a non-reorder action {game.waiting_for_response_action} from you, so a re-order is not valid")
+        await ctx.send(f"I'm currently waiting to resolve a non-order action {game.waiting_for_response_action} from you, so an order is not valid")
         return
 
     non_specifier_inputs = [i for i in new_card_indexes if i.lower() != "top" and i.lower() != "bottom"]
@@ -727,6 +727,10 @@ async def mill(ctx: Context, num_cards: str):
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
         return
+    
+    if not message_is_in_game_channel(ctx, game):
+        await send_game_channel_warning_message(ctx, game)
+        return
 
     try:
         num_cards_int = int(num_cards)
@@ -748,8 +752,27 @@ async def mill(ctx: Context, num_cards: str):
         await game_channel.send(f"{ctx.author.mention} milled {num_cards} cards", files=card_images)
 
 
-def escape(ctx: Context, *card_words):
-    pass
+@bot.command()
+async def escape(ctx: Context, *card_words):
+    game = find_game_by_member_id(ctx.author.id)
+    if not game:
+        await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
+        return
+    game_channel = ctx.guild.get_channel(game.text_channel)
+
+    input_card_name = ' '.join(card_words)
+    actual_card_name = game.graveyard.find(input_card_name)
+    
+    if not actual_card_name:
+        await game_channel.send(f"Sorry, I can't find a card with the name {input_card_name} in the graveyard")
+    else:
+        card_image = None
+        try:
+            card_image = disnake.File(get_image_file_location(actual_card_name))
+        except ImageNotFoundError:
+            print(f"Error retrieving image for {actual_card_name}")
+        
+        await game_channel.send(f"{ctx.author.mention} escaped {actual_card_name}", file=card_image)
 
 
 @bot.command()
@@ -851,7 +874,7 @@ async def resolvetop(ctx: Context, *card_words):
 
 
 @bot.command()
-async def pullfromgrave(ctx: Context, *card_words):
+async def pull(ctx: Context, *card_words):
     """
     Pull a specific card out of the graveyard into your hand
 
@@ -1028,18 +1051,22 @@ async def recur(ctx: Context):
         
 
 @bot.command()
-async def decksize(ctx: Context):
+async def deck(ctx: Context):
     """
-    Get the current size of the Deck of Death
+    Gets basic stats about the Deck of Death
 
     Examples:
-    !decksize
+    !deck
     """
     game = find_game_by_member_id(ctx.author.id)
     if not game:
         await ctx.send(f"Sorry, I couldn't find any games that {ctx.author.mention} is currently playing in")
         return
-    ctx.send(f"The Deck of Death has {len(game.deck.cards)} cards left")
+    
+    num_cards = len(game.deck.cards)
+    num_owd = len([c for c in game.deck.cards if c == "One with Death"])
+    percent_owd = (num_owd / num_cards) * 100
+    await ctx.send(f"The Deck of Death has:\n{num_cards} cards left\n{num_owd} One with Death cards\n{percent_owd:.2f}% chance of drawing a One with Death")
 
 
 @bot.command()
@@ -1069,7 +1096,35 @@ async def rules(ctx: Context):
     await ctx.send("These still need to be defined :)")
 
 
+# Extra aliases
+@bot.command()
+async def d(ctx: Context, num_cards: str="1"):
+    await draw(ctx, num_cards)
 
+
+@bot.command()
+async def dis(ctx: Context, *card_words):
+    await discard(ctx, *card_words)
+
+
+@bot.command()
+async def h(ctx: Context, show_to: str=None):
+    await hand(ctx, show_to)
+
+
+@bot.command()
+async def p(ctx: Context, *card_words):
+    await play(ctx, *card_words)
+
+
+@bot.command()
+async def g(ctx: Context):
+    await graveyard(ctx)
+
+
+@bot.command()
+async def r(ctx: Context, *card_words):
+    await resolve(ctx, *card_words)
 
 
 @bot.event
@@ -1080,8 +1135,7 @@ async def on_command_error(ctx: Context, e: commands.errors.CommandError):
     print(f"Author: {ctx.author.name}, Command: {ctx.command}, Error: {e}")
 
     if isinstance(e, commands.errors.MissingRequiredArgument):
-        await ctx.send(f"Looks like there are missing arguments from that command. You can use `!help {{command}}` to get instructions and examples of how to use a command.\n\nThe error I got for this was: `{e}`")
-
+        await ctx.send(f"Looks like there are missing arguments from that command. You can use `!help {ctx.command}` to get instructions and examples of how to use the command.\n\nThe error I got for this was: `{e}`")
 
 def main():
     global RUNNING_GAMES
